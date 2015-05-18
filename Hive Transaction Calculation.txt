@@ -1,0 +1,55 @@
+DEFINE INITIAL EXTERNAL HIVE TABLE ON HDFS DATA INGESTED
+
+create external table bank_transaction_1 (acct_id int, name string,date string, trxn_type string, trxn_amt string) ROW FORMAT DELIMITED Fields terminated by "," LOCATION '/data_input/branch1';
+
+create external table bank_transaction_2 (acct_id int, name string,channel string, date string, trxn_type string, trxn_amt string) ROW FORMAT DELIMITED Fields terminated by "," LOCATION '/data_input/branch2';
+
+WRITE A UDF TO CONVERT MM/DD/YYYY IN YYYY FOR PARTITIONING AND $XX IN XX DOUBLE VALUE
+GetDollarValue
+GetYear
+
+
+ADD JAR /home/ec2-user/lib/hiveFunctions-1.0-SNAPSHOT.jar;
+CREATE TEMPORARY FUNCTION GetYear as 'GetYear';
+CREATE TEMPORARY FUNCTION GetDollarValue as 'GetDollarValue';
+
+TEST FUNCTIONS IN HIVE
+
+select GetYear(date) from bank_transaction_1 where trxn_amt != "Amount" limit 10;
+
+select GetDollarValue(trxn_amt) from bank_transaction_1 where trxn_amt != "Amount" limit 10;
+
+CREATE PARTITIONED TABLES WITH TRANSFORMED DATA
+
+create table bank_trans_part1 (acct_id int, name string,trxn_type string, trxn_amt int) partitioned by (year string) ROW FORMAT DELIMITED Fields terminated by "," ;
+
+set hive.exec.dynamic.partition=true;
+set hive.exec.dynamic.partition.mode=nonstrict;
+
+INSERT OVERWRITE TABLE bank_trans_part1 PARTITION(year) SELECT acct_id,name,trxn_type,GetDollarValue(trxn_amt),GetYear(date) from bank_transaction_1 where trxn_amt != "Amount";
+
+show partitions bank_trans_part1;
+
+create table bank_trans_part2 (acct_id int, name string,trxn_type string, trxn_amt int) partitioned by (year string) ROW FORMAT DELIMITED Fields terminated by "," ;
+
+set hive.exec.dynamic.partition=true;
+set hive.exec.dynamic.partition.mode=nonstrict;
+
+INSERT OVERWRITE TABLE bank_trans_part2 PARTITION(year) SELECT acct_id,name,trxn_type,GetDollarValue(trxn_amt),GetYear(date) from bank_transaction_2 where trxn_amt != "Amount";
+
+CALCULATE AVERAGE
+
+select U.year,U.trxn_type, avg(U.trxn_amt) from (select year,trxn_type,avg(trxn_amt) as trxn_amt from bank_trans_part1 group by year,trxn_type union all select year,trxn_type,avg(trxn_amt) as trxn_amt from bank_trans_part2 group by year,trxn_type) U group by U.year,U.trxn_type;
+
+CREATE BUCKETED TABLE on trxn_type
+
+
+create table bank_trans_part_buck1 (acct_id int, name string,trxn_type string, trxn_amt int) partitioned by (year string) clustered by (trxn_type) INTO 2 BUCKETS ROW FORMAT DELIMITED Fields terminated by "," ;
+
+set hive.enforce.bucketing = true; 
+set hive.exec.dynamic.partition=true;
+set hive.exec.dynamic.partition.mode=nonstrict;
+
+INSERT OVERWRITE TABLE bank_trans_part_buck1 PARTITION(year) SELECT acct_id,name,trxn_type,GetDollarValue(trxn_amt),GetYear(date) from bank_transaction_1 where trxn_amt != "Amount";
+
+
